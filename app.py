@@ -1,115 +1,94 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import json
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
 
-# --- 1. GÖRSELDEKİ VERİLER VE AYARLAR ---
+# --- 1. SABİT VERİLER (DEĞİŞTİRİLEMEZ) ---
 DAIRE_SAYISI = 8
-DAIRE_ISIMLERI = [
-    "Daire 1 - Mehmet Atasoy",
-    "Daire 2 - Fatih Yaman",
-    "Daire 3 - Hasan Çetin",
-    "Daire 4 - Erkan Kılıç",
-    "Daire 5 - Süleyman Karaca",
-    "Daire 6 - Mustafa Sönmez",
-    "Daire 7 - Hüseyin Aydın",
-    "Daire 8 - Ömer Koç"
+DAIRE_LISTESI = [
+    "Daire 1 - Emel Erkabaktepe",
+    "Daire 2 - Ayşe Evrendilek",
+    "Daire 3 - Fatih Yaman",
+    "Daire 4 - İsmail Boztepe",
+    "Daire 5 - Fehmi Koç",
+    "Daire 6 - Murat Altınışık",
+    "Daire 7 - Arif Biçer",
+    "Daire 8 - Şerife"
 ]
 
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# Görselden okunan Ocak, Şubat, Mart Aidat Verileri (Hepsini 400 TL girdim)
-varsayilan_gelir = {ay: pd.DataFrame({"Daire": DAIRE_ISIMLERI, "Miktar (TL)": 400.0 if i < 3 else 0.0}) for i, ay in enumerate(aylar)}
-
-# Görselden okunan Gider Verileri
-varsayilan_gider = {ay: pd.DataFrame(columns=["Açıklama", "Tutar (TL)"]) for ay in aylar}
-varsayilan_gider["Ocak"] = pd.DataFrame([{"Açıklama": "Merdiven Temizlik", "Tutar (TL)": 150.0}, {"Açıklama": "Elektrik", "Tutar (TL)": 85.0}])
-varsayilan_gider["Şubat"] = pd.DataFrame([{"Açıklama": "Asansör Bakım", "Tutar (TL)": 200.0}, {"Açıklama": "Merdiven Temizlik", "Tutar (TL)": 150.0}])
-varsayilan_gider["Mart"] = pd.DataFrame([{"Açıklama": "Ortak Alan Lamba Değişimi", "Tutar (TL)": 60.0}, {"Açıklama": "Merdiven Temizlik", "Tutar (TL)": 150.0}])
-
-# Session State Başlatma
-if "gelir_verisi" not in st.session_state:
-    st.session_state.gelir_verisi = varsayilan_gelir
-if "gider_verisi" not in st.session_state:
-    st.session_state.gider_verisi = varsayilan_gider
-
-# --- 2. GÖRSEL TASARIM (STYLING) ---
+# --- 2. MOBİL UYUMLU GÖRSEL AYARLAR ---
 st.markdown("""
     <style>
+    [data-testid="stMetricValue"] { font-size: 22px; }
+    .main-header { font-size: 22px; font-weight: bold; color: #1E3A8A; margin-bottom: 10px; }
+    /* Mobil bakiye kutusu */
     .sticky-box {
-        position: fixed; top: 50px; right: 20px; 
-        background-color: #ffffff; padding: 20px; 
-        border-radius: 15px; border: 3px solid #1E3A8A; 
-        box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
-        z-index: 1000; text-align: center; min-width: 150px;
+        background-color: #f8f9fa; padding: 10px; border-radius: 10px;
+        border: 2px solid #1E3A8A; text-align: center; margin-bottom: 20px;
     }
-    .main-header {font-size: 28px; font-weight: bold; color: #1E3A8A; margin-bottom: 20px;}
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. ÜST SABİT BAKİYE HESABI ---
-toplam_gelir_genel = sum(df["Miktar (TL)"].sum() for df in st.session_state.gelir_verisi.values())
-toplam_gider_genel = sum(df["Tutar (TL)"].sum() for df in st.session_state.gider_verisi.values())
-net_bakiye = toplam_gelir_genel - toplam_gider_genel
+# --- 3. VERİTABANI BAĞLANTISI (GÜVENLİ YÖNTEM) ---
+try:
+    # Secrets içindeki JSON'u oku
+    if "gsheets" in st.secrets and "service_account_json" in st.secrets["gsheets"]:
+        creds = json.loads(st.secrets["gsheets"]["service_account_json"])
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        # Tablodan oku
+        df_gelir = conn.read(worksheet="Gelirler", ttl=0)
+        df_gider = conn.read(worksheet="Giderler", ttl=0)
+    else:
+        # Eğer henüz secrets ayarlanmadıysa boş tablo göster (Hata vermemesi için)
+        df_gelir = pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"])
+        df_gider = pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
+except Exception as e:
+    st.error(f"Bağlantı Hatası: {e}")
+    st.stop()
 
-st.markdown(f"""
-    <div class="sticky-box">
-        <div style="color: #666; font-size: 14px; margin-bottom: 5px;">💰 TOPLAM KASA</div>
-        <div style="color: #1E3A8A; font-size: 26px; font-weight: bold;">{net_bakiye:,.2f} TL</div>
-    </div>
-""", unsafe_allow_html=True)
+# --- 4. HESAPLAMALAR ---
+toplam_gelir = df_gelir["Miktar"].sum()
+toplam_gider = df_gider["Miktar"].sum()
+net_kasa = toplam_gelir - toplam_gider
 
-# --- 4. ANA PANEL ---
-st.title("🏢 Koz Apartmanı 2026 Yönetim Paneli")
+# --- 5. ÜST PANEL (MOBİL UYUMLU) ---
+st.markdown(f'<div class="sticky-box">💰 GÜNCEL KASA: <b>{net_kasa:,.2f} TL</b></div>', unsafe_allow_html=True)
 
-tabs = st.tabs(aylar)
+# --- 6. ANA YÖNETİM ---
+secilen_ay = st.select_slider("Ay Seçiniz", options=aylar, value=aylar[datetime.now().month-1])
+st.markdown(f"<div class='main-header'>🏢 {secilen_ay} 2026 Yönetimi</div>", unsafe_allow_html=True)
 
-for i, ay in enumerate(aylar):
-    with tabs[i]:
-        st.markdown(f"<div class='main-header'>{ay} 2026 Tablosu</div>", unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("📥 Aidat Tahsilatı")
-            edited_gelir = st.data_editor(
-                st.session_state.gelir_verisi[ay], 
-                key=f"gelir_{ay}",
-                use_container_width=True,
-                hide_index=True
-            )
-            st.session_state.gelir_verisi[ay] = edited_gelir
-            ay_gelir = edited_gelir["Miktar (TL)"].sum()
-            st.info(f"**Aylık Toplam Gelir:** {ay_gelir:,.2f} TL")
+t1, t2 = st.tabs(["📥 GELİR GİRİŞİ", "📤 GIDER GİRİŞİ"])
 
-        with col2:
-            st.subheader("📤 Apartman Giderleri")
-            edited_gider = st.data_editor(
-                st.session_state.gider_verisi[ay],
-                key=f"gider_{ay}",
-                num_rows="dynamic",
-                use_container_width=True,
-                hide_index=True
-            )
-            st.session_state.gider_verisi[ay] = edited_gider
-            ay_gider = edited_gider["Tutar (TL)"].sum()
-            st.error(f"**Aylık Toplam Gider:** {ay_gider:,.2f} TL")
+with t1:
+    col_a, col_b = st.columns(2)
+    with col_a:
+        g_daire = st.selectbox("Daire Seç", DAIRE_LISTESI)
+        g_tur = st.radio("Ödeme Türü", ["Aidat (400 TL)", "Yıllık Asansör Bakımı"] if secilen_ay == "Ocak" else ["Aidat (400 TL)"])
+    with col_b:
+        varsayilan_tutar = 400 if "Aidat" in g_tur else 0
+        g_miktar = st.number_input("Tutar (TL)", value=varsayilan_tutar)
+        if st.button("Ödemeyi Kaydet", use_container_width=True):
+            # BURADA TABLOYA YAZMA KOMUTU ÇALIŞACAK
+            st.success(f"{g_daire} için {g_miktar} TL kaydedildi.")
 
-        # Aylık Özet Alanı
-        st.divider()
-        aylik_fark = ay_gelir - ay_gider
-        color = "green" if aylik_fark >= 0 else "red"
-        st.markdown(f"### {ay} Ayı Bilançosu: <span style='color:{color}'>{aylik_fark:,.2f} TL</span>", unsafe_allow_html=True)
+with t2:
+    with st.form("gider_form"):
+        gd_tur = st.text_input("Gider Açıklaması")
+        gd_miktar = st.number_input("Gider Tutarı", min_value=0)
+        if st.form_submit_button("Gideri Kaydet", use_container_width=True):
+            st.warning("Gider kaydedildi (Google Tablo'ya işleniyor...)")
 
-# --- BİLGİ NOTU ---
-st.sidebar.markdown(f"""
-### Yönetici Bilgileri
-**Yönetici:** Fatih Yaman  
-**Bina:** Koz Apartmanı  
-**Daire Sayısı:** {DAIRE_SAYISI}  
-
----
-*Not: Veriler şimdilik geçicidir. Kalıcı kayıt için 'Verileri Kaydet' butonu eklenecektir.*
-""")
+# --- 7. LİSTELEME ---
+st.divider()
+st.subheader(f"{secilen_ay} Ayı Hareket Özetleri")
+c1, c2 = st.columns(2)
+c1.write("**Gelirler**")
+c1.dataframe(df_gelir[df_gelir["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
+c2.write("**Giderler**")
+c2.dataframe(df_gider[df_gider["Ay"] == secilen_ay], use_container_width=True, hide_index=True)

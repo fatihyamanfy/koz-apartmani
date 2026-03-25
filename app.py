@@ -16,7 +16,7 @@ DAIRE_LISTESI = [
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. VERİTABANI BAĞLANTISI ---
+# --- 2. VERİTABANI BAĞLANTISI VE SÜTUN ZORLAMA ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def verileri_yukle():
@@ -24,12 +24,28 @@ def verileri_yukle():
         df_gelir = conn.read(worksheet="Gelirler", ttl=0).dropna(how="all", axis=0)
         df_gider = conn.read(worksheet="Giderler", ttl=0).dropna(how="all", axis=0)
         
-        # Sütunları temizle ve zorunlu başlıkları ata
-        for df in [df_gelir, df_gider]:
-            df.columns = [str(c).strip().capitalize() for c in df.columns]
+        # SÜTUN TEMİZLİK OPERASYONU (Hatanın Çözümü Burası)
+        def sutun_duzelt(df, beklenen_sutunlar):
+            # 1. Gizli boşlukları ve karakterleri sil, her şeyi küçük harf yap
+            df.columns = [str(c).strip().lower() for c in df.columns]
+            # 2. Beklenen sütunları haritayla eşleştir (Örn: 'ay' -> 'Ay')
+            mapping = {
+                "tarih": "Tarih", "ay": "Ay", "daire": "Daire", 
+                "tür": "Tür", "tur": "Tür", "miktar": "Miktar", "tutar": "Miktar"
+            }
+            df = df.rename(columns=mapping)
+            # 3. Eğer eksik sütun varsa boş olarak oluştur (Hata patlamasın diye)
+            for col in beklenen_sutunlar:
+                if col not in df.columns:
+                    df[col] = ""
+            return df[beklenen_sutunlar]
+
+        df_gelir = sutun_duzelt(df_gelir, ["Tarih", "Ay", "Daire", "Tür", "Miktar"])
+        df_gider = sutun_duzelt(df_gider, ["Tarih", "Ay", "Tür", "Miktar"])
         
         return df_gelir, df_gider
-    except:
+    except Exception as e:
+        st.warning(f"Veritabanı boş veya yeni oluşturuluyor: {e}")
         return pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"]), \
                pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
 
@@ -58,6 +74,7 @@ st.markdown("""
     .month-card { padding: 8px; border-radius: 5px; text-align: center; color: white; font-weight: bold; font-size: 11px; margin-bottom: 5px;}
     .bg-green { background-color: #28a745; }
     .bg-red { background-color: #dc3545; opacity: 0.7; }
+    .row-style { background-color: #f8f9fa; padding: 10px; border-radius: 8px; margin-bottom: 5px; border-left: 5px solid #1E3A8A; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -70,12 +87,13 @@ if st.button("Çıkış Yap"):
 # Yıllık Durum
 cols = st.columns(12)
 for idx, ay_adi in enumerate(aylar):
-    gelir_toplam = df_gelir[df_gelir["Ay"] == ay_adi]["Miktar"].sum() if "Ay" in df_gelir.columns else 0
-    renk = "bg-green" if gelir_toplam >= 3200 else "bg-red"
+    # Sayısal kontrol
+    t_m = pd.to_numeric(df_gelir[df_gelir["Ay"] == ay_adi]["Miktar"], errors='coerce').sum()
+    renk = "bg-green" if t_m >= 3200 else "bg-red"
     cols[idx].markdown(f'<div class="month-card {renk}">{ay_adi}</div>', unsafe_allow_html=True)
 
-t_gelir = pd.to_numeric(df_gelir["Miktar"], errors='coerce').sum() if "Miktar" in df_gelir.columns else 0
-t_gider = pd.to_numeric(df_gider["Miktar"], errors='coerce').sum() if "Miktar" in df_gider.columns else 0
+t_gelir = pd.to_numeric(df_gelir["Miktar"], errors='coerce').sum()
+t_gider = pd.to_numeric(df_gider["Miktar"], errors='coerce').sum()
 st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA: {t_gelir - t_gider:,.2f} TL</h3></div>', unsafe_allow_html=True)
 
 # --- 6. SEKMELER ---
@@ -84,7 +102,7 @@ t_aylik, t_rapor = st.tabs(["⚙️ Aylık Yönetim", "📜 Genel Rapor"])
 with t_aylik:
     secilen_ay = st.selectbox("Ay Seçin", aylar, index=datetime.now().month-1)
     
-    # --- GELİRLER BÖLÜMÜ ---
+    # GELİRLER
     st.subheader(f"📥 {secilen_ay} Gelirleri")
     if is_admin:
         with st.expander("➕ Yeni Gelir Ekle"):
@@ -97,20 +115,18 @@ with t_aylik:
                 st.rerun()
     
     filtre_gelir = df_gelir[df_gelir["Ay"] == secilen_ay]
-    if not filtre_gelir.empty:
-        for idx, row in filtre_gelir.iterrows():
-            c_del, c_info = st.columns([0.1, 0.9])
+    for idx, row in filtre_gelir.iterrows():
+        with st.container():
+            c_del, c_txt = st.columns([0.1, 0.9])
             if is_admin:
-                if c_del.button("🗑️", key=f"del_gel_{idx}"):
+                if c_del.button("🗑️", key=f"g_{idx}"):
                     conn.update(worksheet="Gelirler", data=df_gelir.drop(idx))
                     st.rerun()
-            c_info.write(f"**{row['Daire']}** | {row['Tür']} | {row['Miktar']} TL | {row['Tarih']}")
-    else:
-        st.write("Bu ay için gelir kaydı bulunmuyor.")
+            c_txt.markdown(f"<div class='row-style'><b>{row['Daire']}</b> | {row['Tür']} | {row['Miktar']} TL</div>", unsafe_allow_html=True)
 
     st.divider()
 
-    # --- GİDERLER BÖLÜMÜ ---
+    # GİDERLER
     st.subheader(f"📤 {secilen_ay} Giderleri")
     if is_admin:
         with st.expander("➕ Yeni Gider Ekle"):
@@ -122,16 +138,14 @@ with t_aylik:
                 st.rerun()
     
     filtre_gider = df_gider[df_gider["Ay"] == secilen_ay]
-    if not filtre_gider.empty:
-        for idx, row in filtre_gider.iterrows():
-            c_del, c_info = st.columns([0.1, 0.9])
+    for idx, row in filtre_gider.iterrows():
+        with st.container():
+            c_del, c_txt = st.columns([0.1, 0.9])
             if is_admin:
-                if c_del.button("🗑️", key=f"del_gid_{idx}"):
+                if c_del.button("🗑️", key=f"gid_{idx}"):
                     conn.update(worksheet="Giderler", data=df_gider.drop(idx))
                     st.rerun()
-            c_info.write(f"**{row['Tür']}** | {row['Miktar']} TL | {row['Tarih']}")
-    else:
-        st.write("Bu ay için gider kaydı bulunmuyor.")
+            c_txt.markdown(f"<div class='row-style'><b>{row['Tür']}</b> | {row['Miktar']} TL</div>", unsafe_allow_html=True)
 
 with t_rapor:
     st.subheader("🗓️ 2026 Genel Raporu")

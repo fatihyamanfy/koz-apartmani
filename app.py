@@ -4,23 +4,25 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import time
 
-# --- 1. AYARLAR ---
-st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
+# --- 1. MOBİL UYGULAMA KONFİGÜRASYONU ---
+st.set_page_config(page_title="Koz Apartmanı", layout="centered", initial_sidebar_state="collapsed")
+
+# iPhone Safari "Ana Ekrana Ekle" Tam Ekran Modu
+st.markdown('<meta name="apple-mobile-web-app-capable" content="yes">', unsafe_allow_html=True)
+st.markdown('<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">', unsafe_allow_html=True)
 
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Yönetim"
 
-DAIRE_LISTESI = [
-    "EMEL ERKABAKTEPE-1", "AYŞE EVRENDİLEK-2", "FATİH YAMAN-3", "İSMAİL BOZTEPE-4",
-    "FEHMİ KOÇ-5", "MURAT ALTINIŞIK-6", "ARİF BİÇER-7", "ŞERİFE-8"
-]
-aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
-         "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-ay_no_map = {v: str(i+1).zfill(2) for i, v in enumerate(aylar)}
+DAIRE_LISTESI = ["EMEL ERKABAKTEPE-1", "AYŞE EVRENDİLEK-2", "FATİH YAMAN-3", "İSMAİL BOZTEPE-4", "FEHMİ KOÇ-5", "MURAT ALTINIŞIK-6", "ARİF BİÇER-7", "ŞERİFE-8"]
+aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. VERİTABANI BAĞLANTISI ---
+# --- 2. VERİ BAĞLANTISI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+@st.cache_data(ttl=2)
 def verileri_yukle():
     try:
         raw_gelir = conn.read(worksheet="Gelirler", ttl=0).dropna(how="all", axis=0)
@@ -41,108 +43,109 @@ def verileri_yukle():
         return pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"]), \
                pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
 
-# --- 3. GİRİŞ KONTROLÜ ---
-if st.session_state.logged_in_user is None:
-    st.markdown("<h2 style='text-align: center; color: white;'>🏢 Koz Apartmanı Yönetim</h2>", unsafe_allow_html=True)
-    u_name = st.text_input("Kullanıcı Adı")
-    u_pass = st.text_input("Şifre", type="password")
-    if st.button("Giriş Yap", use_container_width=True):
-        if u_name == "fatihyaman" and u_pass == "200915":
-            st.session_state.logged_in_user = "admin"
-            st.rerun()
-        elif u_name != "" and len(u_pass) == 6:
-            st.session_state.logged_in_user = "user"
-            st.rerun()
-        else: st.error("Hatalı giriş!")
-    st.stop()
-
-# Verileri çek
-df_gelir, df_gider = verileri_yukle()
-is_admin = (st.session_state.logged_in_user == "admin")
-
-# --- 4. TASARIM ---
+# --- 3. TASARIM (DARK & COMPACT UI) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: white; }
-    .bakiye-kutu { background: #1A1C23; border: 1px solid #30363D; padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; }
+    /* Alt Menü Barı */
+    .nav-bar {
+        position: fixed; bottom: 0; left: 0; width: 100%;
+        background: #161B22; border-top: 1px solid #30363D;
+        display: flex; justify-content: space-around; padding: 10px 0;
+        z-index: 999;
+    }
+    .bakiye-container {
+        background: linear-gradient(135deg, #1A1C23 0%, #0D1117 100%);
+        border: 1px solid #30363D; padding: 15px; border-radius: 12px;
+        text-align: center; margin-bottom: 15px;
+    }
+    .item-card {
+        background: #161B22; border: 1px solid #30363D; border-radius: 10px;
+        padding: 10px; margin-bottom: 8px; display: flex; align-items: center;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-kasa = df_gelir["Miktar"].sum() - df_gider["Miktar"].sum()
-st.markdown(f'<div class="bakiye-kutu"><div style="color:#8B949E; font-size:12px;">GÜNCEL BAKİYE</div><div style="font-size:30px; font-weight:bold; color:#58A6FF;">{kasa:,.2f} TL</div></div>', unsafe_allow_html=True)
+# --- 4. GİRİŞ SİSTEMİ ---
+if st.session_state.logged_in_user is None:
+    st.markdown("<h2 style='text-align:center;'>🏢 Koz Apartmanı</h2>", unsafe_allow_html=True)
+    u = st.text_input("Kullanıcı")
+    p = st.text_input("Şifre", type="password")
+    if st.button("Sisteme Gir", use_container_width=True):
+        if u == "fatihyaman" and p == "200915": st.session_state.logged_in_user = "admin"; st.rerun()
+        elif u != "" and len(p) == 6: st.session_state.logged_in_user = "user"; st.rerun()
+        else: st.error("Hatalı giriş!")
+    st.stop()
 
-# --- 5. ANA İŞLEMLER ---
-t_yon, t_borc, t_rap = st.tabs(["⚙️ Yönetim", "🔍 Borçlular", "📜 Rapor"])
+df_gelir, df_gider = verileri_yukle()
+is_admin = (st.session_state.logged_in_user == "admin")
 
-with t_yon:
-    secilen_ay = st.selectbox("İşlem Yapılacak Ay", aylar, index=datetime.now().month-1)
+# --- 5. ALT MENÜ NAVİGASYONU ---
+c1, c2, c3 = st.columns(3)
+if c1.button("⚙️ Yönetim", use_container_width=True): st.session_state.current_page = "Yönetim"
+if c2.button("🔍 Borç", use_container_width=True): st.session_state.current_page = "Borçlular"
+if c3.button("📜 Rapor", use_container_width=True): st.session_state.current_page = "Rapor"
+
+st.divider()
+
+# --- SAYFA: YÖNETİM ---
+if st.session_state.current_page == "Yönetim":
+    kasa = df_gelir["Miktar"].sum() - df_gider["Miktar"].sum()
+    st.markdown(f'<div class="bakiye-container"><small style="color:#8B949E">KASA</small><h2 style="color:#58A6FF; margin:0;">{kasa:,.2f} TL</h2></div>', unsafe_allow_html=True)
     
-    # --- GELİR EKLEME ---
-    st.markdown(f"### 📥 {secilen_ay} Gelir Girişi")
-    if is_admin:
-        with st.form(key=f"gelir_formu_{secilen_ay}"):
-            daireler = st.multiselect("Ödeme Yapan Daireler", DAIRE_LISTESI)
-            g_tur = st.radio("Tür", ["Aidat", "Asansör Bakımı"] if secilen_ay=="Ocak" else ["Aidat"], horizontal=True)
-            g_tutar = st.number_input("Daire Başı Tutar", value=400)
-            submit_gelir = st.form_submit_button("VERİLERİ KAYDET", use_container_width=True)
-            
-            if submit_gelir:
-                if daireler:
-                    tarih_fix = f"20.{ay_no_map[secilen_ay]}.2026"
-                    yeni_kayitlar = [{"Tarih": tarih_fix, "Ay": secilen_ay, "Daire": d, "Tür": g_tur, "Miktar": g_tutar} for d in daireler]
-                    yeni_df = pd.concat([df_gelir, pd.DataFrame(yeni_kayitlar)], ignore_index=True)
-                    conn.update(worksheet="Gelirler", data=yeni_df)
-                    st.success("Gelirler başarıyla kaydedildi!")
-                    time.sleep(1)
+    secilen_ay = st.selectbox("Ay", aylar, index=datetime.now().month-1, label_visibility="collapsed")
+    
+    tab_in, tab_out = st.tabs(["📥 GELİR", "📤 GİDER"])
+    
+    with tab_in:
+        if is_admin:
+            with st.form("gelir_f", clear_on_submit=True):
+                dlar = st.multiselect("Daireler", DAIRE_LISTESI)
+                tur = st.radio("Tür", ["Aidat", "Asansör"], horizontal=True)
+                tut = st.number_input("Tutar", value=400)
+                tar = st.date_input("Ödeme Tarihi", datetime.now())
+                if st.form_submit_button("KAYDET", use_container_width=True):
+                    yeni = [{"Tarih": tar.strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": d, "Tür": tur, "Miktar": tut} for d in dlar]
+                    conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, pd.DataFrame(yeni)], ignore_index=True))
                     st.rerun()
-                else: st.warning("Lütfen daire seçin!")
+        
+        for idx, row in df_gelir[df_gelir["Ay"]==secilen_ay].iterrows():
+            col_d, col_t = st.columns([0.2, 0.8])
+            if is_admin and col_d.button("🗑️", key=f"g_{idx}"):
+                conn.update(worksheet="Gelirler", data=df_gelir.drop(idx)); st.rerun()
+            col_t.markdown(f"<div class='item-card'><b>{row['Daire']}</b><br>{row['Miktar']} TL - {row['Tarih']}</div>", unsafe_allow_html=True)
 
-    # Gelir Listesi ve Silme
-    f_gelir = df_gelir[df_gelir["Ay"] == secilen_ay]
-    for idx, row in f_gelir.iterrows():
-        c1, c2 = st.columns([0.2, 0.8])
-        if is_admin and c1.button("🗑️", key=f"g_sil_{idx}"):
-            conn.update(worksheet="Gelirler", data=df_gelir.drop(idx))
-            st.rerun()
-        c2.info(f"{row['Daire']} | {row['Tür']} | {row['Miktar']} TL")
+    with tab_out:
+        if is_admin:
+            with st.form("gider_f", clear_on_submit=True):
+                acik = st.text_input("Gider Adı")
+                tut_g = st.number_input("Tutar ", min_value=0)
+                tar_g = st.date_input("Gider Tarihi", datetime.now())
+                if st.form_submit_button("GİDERİ KAYDET", use_container_width=True):
+                    yeni_g = pd.DataFrame([{"Tarih": tar_g.strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": acik, "Miktar": tut_g}])
+                    conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True)); st.rerun()
 
-    st.divider()
+        for idx, row in df_gider[df_gider["Ay"]==secilen_ay].iterrows():
+            col_d, col_t = st.columns([0.2, 0.8])
+            if is_admin and col_d.button("🗑️", key=f"gid_{idx}"):
+                conn.update(worksheet="Giderler", data=df_gider.drop(idx)); st.rerun()
+            col_t.markdown(f"<div class='item-card' style='border-left:4px solid #F85149;'><b>{row['Tür']}</b><br>{row['Miktar']} TL - {row['Tarih']}</div>", unsafe_allow_html=True)
 
-    # --- GİDER EKLEME ---
-    st.markdown(f"### 📤 {secilen_ay} Gider Girişi")
-    if is_admin:
-        with st.form(key=f"gider_formu_{secilen_ay}"):
-            aciklama = st.text_input("Gider Açıklaması")
-            gider_tutar = st.number_input("Tutar", min_value=0)
-            submit_gider = st.form_submit_button("GİDERİ KAYDET", use_container_width=True)
-            
-            if submit_gider:
-                if aciklama:
-                    tarih_fix = f"20.{ay_no_map[secilen_ay]}.2026"
-                    yeni_g = pd.DataFrame([{"Tarih": tarih_fix, "Ay": secilen_ay, "Tür": aciklama, "Miktar": gider_tutar}])
-                    conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True))
-                    st.success("Gider kaydedildi!")
-                    time.sleep(1)
-                    st.rerun()
-                else: st.warning("Açıklama girin!")
-
-    f_gider = df_gider[df_gider["Ay"] == secilen_ay]
-    for idx, row in f_gider.iterrows():
-        c1, c2 = st.columns([0.2, 0.8])
-        if is_admin and c1.button("🗑️", key=f"gid_sil_{idx}"):
-            conn.update(worksheet="Giderler", data=df_gider.drop(idx))
-            st.rerun()
-        c2.error(f"{row['Tür']} | {row['Miktar']} TL")
-
-with t_borc:
-    yapanlar = df_gelir[(df_gelir["Ay"] == secilen_ay) & (df_gelir["Tür"] == "Aidat")]["Daire"].tolist()
+# --- SAYFA: BORÇLULAR ---
+elif st.session_state.current_page == "Borçlular":
+    st.subheader("Ödemeyen Daireler")
+    ay_filt = st.selectbox("Kontrol Ayı", aylar, index=datetime.now().month-1)
+    yapanlar = df_gelir[(df_gelir["Ay"]==ay_filt) & (df_gelir["Tür"]=="Aidat")]["Daire"].tolist()
     borclular = [d for d in DAIRE_LISTESI if d not in yapanlar]
-    for b in borclular: st.warning(f"❌ {b}")
-    if not borclular: st.success("Bu ay herkes ödedi!")
+    for b in borclular: st.error(f"❌ {b}")
+    if not borclular: st.success("Herkes ödedi!")
 
-with t_rap:
-    st.dataframe(pd.concat([df_gelir.assign(Tip="GELİR"), df_gider.assign(Tip="GİDER")], ignore_index=True).sort_index(ascending=False), use_container_width=True, hide_index=True)
-
-if st.button("🚪 Çıkış Yap", use_container_width=True):
-    st.session_state.logged_in_user = None
-    st.rerun()
+# --- SAYFA: RAPOR ---
+elif st.session_state.current_page == "Rapor":
+    st.subheader("Genel Hareketler")
+    full = pd.concat([df_gelir.assign(T="GELİR"), df_gider.assign(T="GİDER")], ignore_index=True)
+    full['dt'] = pd.to_datetime(full['Tarih'], format='%d.%m.%Y', errors='coerce')
+    st.dataframe(full.sort_values('dt', ascending=False)[["Tarih", "Ay", "T", "Tür", "Daire", "Miktar"]].fillna("-"), use_container_width=True, hide_index=True)
+    if st.button("🚪 Çıkış Yap", use_container_width=True):
+        st.session_state.logged_in_user = None
+        st.rerun()

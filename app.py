@@ -16,7 +16,7 @@ DAIRE_LISTESI = [
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. VERİTABANI BAĞLANTISI VE TEMİZLİK ---
+# --- 2. VERİTABANI BAĞLANTISI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def verileri_yukle():
@@ -24,11 +24,11 @@ def verileri_yukle():
         df_gelir = conn.read(worksheet="Gelirler", ttl=0).dropna(how="all", axis=0)
         df_gider = conn.read(worksheet="Giderler", ttl=0).dropna(how="all", axis=0)
         
-        # "None" ve "Unnamed" sütunlarını tamamen kaldır
+        # Gereksiz boş sütunları temizle
         df_gelir = df_gelir.loc[:, ~df_gelir.columns.str.contains('^Unnamed|^None|none', case=False, na=False)]
         df_gider = df_gider.loc[:, ~df_gider.columns.str.contains('^Unnamed|^None|none', case=False, na=False)]
         
-        # Sütun isimlerini standartlaştır
+        # Başlıkları standartlaştır
         df_gelir.columns = [c.strip().capitalize() for c in df_gelir.columns]
         df_gider.columns = [c.strip().capitalize() for c in df_gider.columns]
         
@@ -62,6 +62,7 @@ st.markdown("""
     .month-card { padding: 8px; border-radius: 5px; text-align: center; color: white; font-weight: bold; font-size: 11px; margin-bottom: 5px;}
     .bg-green { background-color: #28a745; }
     .bg-red { background-color: #dc3545; opacity: 0.7; }
+    .delete-box { border: 1px solid #ff4b4b; padding: 10px; border-radius: 5px; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,17 +72,13 @@ if st.button("Çıkış Yap"):
     st.session_state.logged_in_user = None
     st.rerun()
 
-# Yıllık Durum Panosu
+# Yıllık Durum
 cols = st.columns(12)
 for idx, ay_adi in enumerate(aylar):
-    if "Ay" in df_gelir.columns and "Miktar" in df_gelir.columns:
-        gelir_toplam = df_gelir[df_gelir["Ay"] == ay_adi]["Miktar"].sum()
-        renk = "bg-green" if gelir_toplam >= 3200 else "bg-red"
-    else:
-        renk = "bg-red"
+    gelir_toplam = df_gelir[df_gelir["Ay"] == ay_adi]["Miktar"].sum() if "Ay" in df_gelir.columns else 0
+    renk = "bg-green" if gelir_toplam >= 3200 else "bg-red"
     cols[idx].markdown(f'<div class="month-card {renk}">{ay_adi}</div>', unsafe_allow_html=True)
 
-# Bakiye Hesaplama
 t_gelir = pd.to_numeric(df_gelir["Miktar"], errors='coerce').sum() if "Miktar" in df_gelir.columns else 0
 t_gider = pd.to_numeric(df_gider["Miktar"], errors='coerce').sum() if "Miktar" in df_gider.columns else 0
 st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA: {t_gelir - t_gider:,.2f} TL</h3></div>', unsafe_allow_html=True)
@@ -102,13 +99,19 @@ with t_aylik:
                 g_miktar = st.number_input("Miktar", value=400)
                 if st.button("Kaydet"):
                     yeni = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": g_daire, "Tür": g_tur, "Miktar": g_miktar}])
-                    # Sadece ana sütunları göndererek tabloyu temizle
-                    temiz_gelir = pd.concat([df_gelir, yeni], ignore_index=True)[["Tarih", "Ay", "Daire", "Tür", "Miktar"]]
-                    conn.update(worksheet="Gelirler", data=temiz_gelir)
-                    st.rerun()
+                    conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, yeni], ignore_index=True)[["Tarih", "Ay", "Daire", "Tür", "Miktar"]])
+                    st.success("Gelir Eklendi!"); st.rerun()
         
-        if "Ay" in df_gelir.columns:
-            st.dataframe(df_gelir[df_gelir["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
+        ay_gelir_filtre = df_gelir[df_gelir["Ay"] == secilen_ay]
+        st.dataframe(ay_gelir_filtre, use_container_width=True)
+
+        if is_admin and not ay_gelir_filtre.empty:
+            with st.expander("🗑️ Gelir Sil (Hatalı İşlem)"):
+                sil_index = st.number_input("Silinecek Satır No (Sol baştaki rakam):", min_value=0, step=1, key="del_gelir")
+                if st.button("Seçili Geliri Kalıcı Olarak Sil"):
+                    df_gelir = df_gelir.drop(sil_index)
+                    conn.update(worksheet="Gelirler", data=df_gelir[["Tarih", "Ay", "Daire", "Tür", "Miktar"]])
+                    st.warning("İşlem silindi!"); st.rerun()
 
     with c2:
         st.subheader("📤 Giderler")
@@ -118,13 +121,19 @@ with t_aylik:
                 gd_miktar = st.number_input("Tutar", min_value=0)
                 if st.button("Gider Kaydet"):
                     yeni_g = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": gd_acik, "Miktar": gd_miktar}])
-                    # Sadece ana sütunları göndererek tabloyu temizle
-                    temiz_gider = pd.concat([df_gider, yeni_g], ignore_index=True)[["Tarih", "Ay", "Tür", "Miktar"]]
-                    conn.update(worksheet="Giderler", data=temiz_gider)
-                    st.rerun()
+                    conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True)[["Tarih", "Ay", "Tür", "Miktar"]])
+                    st.success("Gider Eklendi!"); st.rerun()
         
-        if "Ay" in df_gider.columns:
-            st.dataframe(df_gider[df_gider["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
+        ay_gider_filtre = df_gider[df_gider["Ay"] == secilen_ay]
+        st.dataframe(ay_gider_filtre, use_container_width=True)
+
+        if is_admin and not ay_gider_filtre.empty:
+            with st.expander("🗑️ Gider Sil (Hatalı İşlem)"):
+                sil_index_g = st.number_input("Silinecek Satır No (Sol baştaki rakam):", min_value=0, step=1, key="del_gider")
+                if st.button("Seçili Gideri Kalıcı Olarak Sil"):
+                    df_gider = df_gider.drop(sil_index_g)
+                    conn.update(worksheet="Giderler", data=df_gider[["Tarih", "Ay", "Tür", "Miktar"]])
+                    st.warning("Gider silindi!"); st.rerun()
 
 with t_rapor:
     st.subheader("🗓️ 2026 Genel Raporu")

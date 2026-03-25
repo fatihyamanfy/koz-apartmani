@@ -4,8 +4,12 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import time
 
-# --- 1. AYARLAR ---
-st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
+# --- 1. SAFARİ TAM EKRAN VE MOBİL AYARLAR ---
+st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide", initial_sidebar_state="collapsed")
+
+# iPhone Safari için "Ana Ekrana Ekle" ayarı (Standalone Mode)
+st.markdown('<meta name="apple-mobile-web-app-capable" content="yes">', unsafe_allow_html=True)
+st.markdown('<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">', unsafe_allow_html=True)
 
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
@@ -30,8 +34,6 @@ def verileri_yukle():
             df.columns = [str(c).strip().lower() for c in df.columns]
             mapping = {"tarih": "Tarih", "ay": "Ay", "daire": "Daire", "tür": "Tür", "tur": "Tür", "miktar": "Miktar", "tutar": "Miktar"}
             df = df.rename(columns=mapping)
-            for col in ["Tarih", "Ay", "Daire", "Tür", "Miktar"]:
-                if col not in df.columns: df[col] = ""
             df["Miktar"] = pd.to_numeric(df["Miktar"], errors='coerce').fillna(0)
             return df[["Tarih", "Ay", "Daire", "Tür", "Miktar"]]
 
@@ -39,8 +41,6 @@ def verileri_yukle():
             df.columns = [str(c).strip().lower() for c in df.columns]
             mapping = {"tarih": "Tarih", "ay": "Ay", "tür": "Tür", "tur": "Tür", "miktar": "Miktar", "tutar": "Miktar"}
             df = df.rename(columns=mapping)
-            for col in ["Tarih", "Ay", "Tür", "Miktar"]:
-                if col not in df.columns: df[col] = ""
             df["Miktar"] = pd.to_numeric(df["Miktar"], errors='coerce').fillna(0)
             return df[["Tarih", "Ay", "Tür", "Miktar"]]
 
@@ -51,111 +51,115 @@ def verileri_yukle():
 
 df_gelir, df_gider = verileri_yukle()
 
-# --- 3. GİRİŞ SİSTEMİ ---
+# --- 3. GİRİŞ VE KAYIT SİSTEMİ ---
 if st.session_state.logged_in_user is None:
-    st.title("🔐 Koz Apartmanı Giriş")
-    u_name = st.text_input("Kullanıcı Adı")
-    u_pass = st.text_input("Şifre", type="password")
-    if st.button("Sisteme Gir"):
-        if u_name == "fatihyaman" and u_pass == "200915":
-            st.session_state.logged_in_user = "admin"
-            st.rerun()
-        elif u_name != "" and len(u_pass) == 6:
-            st.session_state.logged_in_user = "user"
-            st.rerun()
+    st.title("🏢 Koz Apartmanı")
+    tab_giris, tab_kayit = st.tabs(["Giriş Yap", "Kayıt Ol"])
+    
+    with tab_giris:
+        u_name = st.text_input("Kullanıcı Adı", key="login_u")
+        u_pass = st.text_input("Şifre", type="password", key="login_p")
+        if st.button("Giriş", use_container_width=True):
+            if u_name == "fatihyaman" and u_pass == "200915":
+                st.session_state.logged_in_user = "admin"
+                st.rerun()
+            elif u_name != "" and len(u_pass) == 6:
+                st.session_state.logged_in_user = "user"
+                st.rerun()
+            else: st.error("Hatalı bilgiler!")
+
+    with tab_kayit:
+        st.info("Kayıt olanlar sadece izleme yetkisine sahip olur.")
+        new_u = st.text_input("Kullanıcı Adı", key="reg_u")
+        new_p = st.text_input("Şifre (6 Rakam)", max_chars=6, key="reg_p")
+        if st.button("Kayıt Ol", use_container_width=True):
+            if len(new_p) == 6 and new_p.isdigit():
+                st.success("Kayıt başarılı! Giriş yapabilirsiniz.")
+            else: st.error("Şifre 6 haneli rakam olmalı!")
     st.stop()
 
 is_admin = (st.session_state.logged_in_user == "admin")
 
-# --- 4. GÖRSEL TASARIM ---
+# --- 4. MODERN TASARIM (CSS) ---
 st.markdown("""
     <style>
-    .bakiye-container { background-color: #1E3A8A; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
-    .month-card { padding: 8px; border-radius: 5px; text-align: center; color: white; font-weight: bold; font-size: 11px; margin-bottom: 5px;}
-    .bg-green { background-color: #28a745; }
-    .bg-red { background-color: #dc3545; opacity: 0.7; }
-    .row-style { background-color: #ffffff; color: #000000 !important; padding: 10px; border-radius: 8px; margin-bottom: 5px; border-left: 6px solid #1E3A8A; font-weight: bold; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);}
-    .borclu-style { background-color: #ffebee; color: #c62828; padding: 8px; border-radius: 5px; margin-bottom: 5px; border-left: 5px solid #c62828; font-size: 14px;}
+    .stApp { background-color: #f8f9fa; }
+    .bakiye-kutu { 
+        background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); 
+        color: white; padding: 20px; border-radius: 20px; text-align: center; 
+        margin-bottom: 25px; box-shadow: 0 10px 20px rgba(30,58,138,0.2);
+    }
+    .month-card { padding: 8px; border-radius: 8px; text-align: center; color: white; font-weight: bold; font-size: 10px; }
+    .bg-green { background-color: #10B981; }
+    .bg-red { background-color: #EF4444; }
+    /* Liste Tasarımı */
+    .item-card {
+        background-color: white; padding: 15px; border-radius: 12px;
+        margin-bottom: 10px; border: 1px solid #e5e7eb;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .item-info { color: #1f2937; font-weight: 600; font-size: 14px; }
+    .item-price { color: #1E3A8A; font-weight: 800; font-size: 16px; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 5. ÜST PANEL ---
-st.write(f"Hoş geldin, **{st.session_state.logged_in_user}**")
-if st.button("Çıkış Yap"):
-    st.session_state.logged_in_user = None
-    st.rerun()
+st.markdown(f'<div class="bakiye-kutu"><div style="font-size:14px; opacity:0.9;">TOPLAM KASA</div><div style="font-size:32px; font-weight:900;">{df_gelir["Miktar"].sum() - df_gider["Miktar"].sum():,.2f} TL</div></div>', unsafe_allow_html=True)
 
-# Yıllık Durum
 cols = st.columns(12)
 for idx, ay_adi in enumerate(aylar):
     gelir_toplam = df_gelir[df_gelir["Ay"] == ay_adi]["Miktar"].sum()
     renk = "bg-green" if gelir_toplam >= 3200 else "bg-red"
-    cols[idx].markdown(f'<div class="month-card {renk}">{ay_adi}</div>', unsafe_allow_html=True)
+    cols[idx].markdown(f'<div class="month-card {renk}">{ay_adi[:3]}</div>', unsafe_allow_html=True)
 
-t_gelir = df_gelir["Miktar"].sum()
-t_gider = df_gider["Miktar"].sum()
-st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA: {t_gelir - t_gider:,.2f} TL</h3></div>', unsafe_allow_html=True)
-
-# --- 6. SEKMELER ---
-t_aylik, t_borclular, t_rapor = st.tabs(["⚙️ Aylık Yönetim", "🔍 Ödemeyenler", "📜 Genel Rapor"])
+# --- 6. ANA SEKMELER ---
+st.divider()
+t_aylik, t_borclular, t_rapor = st.tabs(["⚙️ Yönetim", "🔍 Borçlular", "📜 Rapor"])
 
 with t_aylik:
-    secilen_ay = st.selectbox("İşlem Yapılacak Ayı Seçin", aylar, index=datetime.now().month-1)
+    secilen_ay = st.selectbox("Ay Seçimi", aylar, index=datetime.now().month-1)
     
-    # --- GELİR EKLEME ---
-    st.subheader(f"📥 {secilen_ay} Ayı Gelir Girişi")
     if is_admin:
-        with st.expander(f"➕ {secilen_ay} Ayı Yeni Gelir Ekle", expanded=True):
-            secilen_daireler = st.multiselect("Ödeme Yapan Daireleri Seçin", DAIRE_LISTESI)
+        with st.expander(f"➕ {secilen_ay} Gelir Ekle", expanded=False):
+            daireler = st.multiselect("Daireler", DAIRE_LISTESI)
             c1, c2 = st.columns(2)
-            g_tur_coklu = c1.radio("Ödeme Türü", ["Aidat", "Asansör Bakımı"] if secilen_ay=="Ocak" else ["Aidat"], key="coklu_tur")
-            g_miktar_coklu = c2.number_input("Tutar (TL)", value=400 if g_tur_coklu == "Aidat" else 1800)
-            
-            if st.button(f"Seçili Kayıtları {secilen_ay} Ayına İşle", use_container_width=True):
-                if secilen_daireler:
-                    yeni_kayitlar = [{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": d, "Tür": g_tur_coklu, "Miktar": g_miktar_coklu} for d in secilen_daireler]
-                    conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, pd.DataFrame(yeni_kayitlar)], ignore_index=True))
-                    st.success("İşlem başarılı!"); time.sleep(1); st.rerun()
+            g_tur = c1.radio("Tür", ["Aidat", "Asansör"] if secilen_ay=="Ocak" else ["Aidat"])
+            g_tutar = c2.number_input("Tutar", value=400 if g_tur=="Aidat" else 1800)
+            if st.button("Kaydet", use_container_width=True):
+                yeni = [{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": d, "Tür": g_tur, "Miktar": g_tutar} for d in daireler]
+                conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, pd.DataFrame(yeni)], ignore_index=True))
+                st.rerun()
 
-    # Gelir Listesi
+    st.markdown(f"### {secilen_ay} Hareketleri")
     f_gelir = df_gelir[df_gelir["Ay"] == secilen_ay]
     for idx, row in f_gelir.iterrows():
-        c_del, c_txt = st.columns([0.1, 0.9])
-        if is_admin and c_del.button("🗑️", key=f"g_{idx}"):
-            conn.update(worksheet="Gelirler", data=df_gelir.drop(idx))
-            st.rerun()
-        c_txt.markdown(f"<div class='row-style'>{row['Daire']} | {row['Tür']} | {row['Miktar']} TL</div>", unsafe_allow_html=True)
+        col_del, col_main = st.columns([0.15, 0.85])
+        if is_admin and col_del.button("🗑️", key=f"del_g_{idx}"):
+            conn.update(worksheet="Gelirler", data=df_gelir.drop(idx)); st.rerun()
+        col_main.markdown(f"<div class='item-card'><div class='item-info'>{row['Daire']}<br><small>{row['Tür']}</small></div><div class='item-price'>{row['Miktar']} TL</div></div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # --- GİDERLER ---
-    st.subheader(f"📤 {secilen_ay} Ayı Gider Girişi")
     if is_admin:
-        with st.expander(f"➕ {secilen_ay} Ayı Yeni Gider Ekle"):
-            gd_acik = st.text_input("Gider Açıklaması")
-            gd_miktar = st.number_input("Gider Tutarı", min_value=0)
-            if st.button("Gideri Kaydet"):
-                yeni_g = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": gd_acik, "Miktar": gd_miktar}])
-                conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True))
-                st.rerun()
-    
+        with st.expander(f"➕ {secilen_ay} Gider Ekle"):
+            acik = st.text_input("Gider Adı")
+            tut = st.number_input("Tutar ", min_value=0)
+            if st.button("Gideri Kaydet", use_container_width=True):
+                yeni_g = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": acik, "Miktar": tut}])
+                conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True)); st.rerun()
+
     f_gider = df_gider[df_gider["Ay"] == secilen_ay]
     for idx, row in f_gider.iterrows():
-        c_del, c_txt = st.columns([0.1, 0.9])
-        if is_admin and c_del.button("🗑️", key=f"gid_{idx}"):
-            conn.update(worksheet="Giderler", data=df_gider.drop(idx))
-            st.rerun()
-        c_txt.markdown(f"<div class='row-style'>{row['Tür']} | {row['Miktar']} TL</div>", unsafe_allow_html=True)
+        col_del, col_main = st.columns([0.15, 0.85])
+        if is_admin and col_del.button("🗑️", key=f"del_gid_{idx}"):
+            conn.update(worksheet="Giderler", data=df_gider.drop(idx)); st.rerun()
+        col_main.markdown(f"<div class='item-card'><div class='item-info'>{row['Tür']}<br><small>Gider</small></div><div class='item-price' style='color:#EF4444;'>{row['Miktar']} TL</div></div>", unsafe_allow_html=True)
 
 with t_borclular:
-    st.subheader(f"🚩 {secilen_ay} Ayı Aidat Borçluları")
     odeme_yapanlar = df_gelir[(df_gelir["Ay"] == secilen_ay) & (df_gelir["Tür"] == "Aidat")]["Daire"].tolist()
     borclular = [d for d in DAIRE_LISTESI if d not in odeme_yapanlar]
-    if not borclular: st.success("Harika! Bu ay tüm daireler aidatını ödedi.")
-    else:
-        for b in borclular: st.markdown(f"<div class='borclu-style'>❌ {b}</div>", unsafe_allow_html=True)
+    for b in borclular: st.error(f"❌ {b}")
+    if not borclular: st.success("Tüm aidatlar ödendi!")
 
 with t_rapor:
-    st.subheader("🗓️ 2026 Genel Raporu")
-    rapor = pd.concat([df_gelir.assign(Tip="GELİR"), df_gider.assign(Tip="GİDER")], ignore_index=True).sort_index(ascending=False)
-    st.dataframe(rapor[["Tarih", "Ay", "Tip", "Tür", "Daire", "Miktar"]].fillna("-"), use_container_width=True, hide_index=True)
+    st.dataframe(pd.concat([df_gelir.assign(T="GELİR"), df_gider.assign(T="GİDER")], ignore_index=True).sort_index(ascending=False), use_container_width=True, hide_index=True)
+
+st.sidebar.button("Güvenli Çıkış", on_click=lambda: st.session_state.update({"logged_in_user": None}))

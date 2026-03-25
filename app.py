@@ -1,18 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
-# --- 1. AYARLAR VE YETKİLENDİRME ---
 st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
 
-# Kullanıcı veritabanı simülasyonu (Gerçek sistemde DB'ye bağlanır)
-if "users" not in st.session_state:
-    st.session_state.users = {"fatihyaman": "200915"} # Yönetici hesabı
-
+# --- 1. YETKİLENDİRME VE AYARLAR ---
 if "logged_in_user" not in st.session_state:
     st.session_state.logged_in_user = None
 
-# --- 2. DAİRE VE AY VERİLERİ ---
 DAIRE_LISTESI = [
     "EMEL ERKABAKTEPE-1", "AYŞE EVRENDİLEK-2", "FATİH YAMAN-3", "İSMAİL BOZTEPE-4",
     "FEHMİ KOÇ-5", "MURAT ALTINIŞIK-6", "ARİF BİÇER-7", "ŞERİFE-8"
@@ -20,98 +16,118 @@ DAIRE_LISTESI = [
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# Veri saklama
-if "kasa_gelir" not in st.session_state:
-    st.session_state.kasa_gelir = pd.DataFrame(columns=["Ay", "Daire", "Tür", "Miktar"])
-if "kasa_gider" not in st.session_state:
-    st.session_state.kasa_gider = pd.DataFrame(columns=["Ay", "Tür", "Miktar"])
+# --- 2. VERİTABANI BAĞLANTISI (GOOGLE SHEETS) ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. GİRİŞ VE KAYIT SİSTEMİ ---
+def verileri_cek():
+    df_gelir = conn.read(worksheet="Gelirler", ttl=0)
+    df_gider = conn.read(worksheet="Giderler", ttl=0)
+    return df_gelir, df_gider
+
+try:
+    df_gelir, df_gider = verileri_cek()
+except:
+    df_gelir = pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"])
+    df_gider = pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
+
+# --- 3. GİRİŞ SİSTEMİ ---
 if st.session_state.logged_in_user is None:
-    st.title("🔐 Koz Apartmanı Yönetim Sistemi")
-    giris_tab, kayit_tab = st.tabs(["Giriş Yap", "Kayıt Ol"])
-    
-    with giris_tab:
-        u_name = st.text_input("Kullanıcı Adı")
-        u_pass = st.text_input("Şifre", type="password")
-        if st.button("Giriş"):
-            if u_name in st.session_state.users and st.session_state.users[u_name] == u_pass:
-                st.session_state.logged_in_user = u_name
-                st.rerun()
-            else:
-                st.error("Hatalı kullanıcı adı veya şifre!")
-
-    with kayit_tab:
-        new_u = st.text_input("Yeni Kullanıcı Adı")
-        new_p = st.text_input("Yeni Şifre (Sadece 6 Haneli Rakam)", max_chars=6)
-        if st.button("Kayıt Ol"):
-            if len(new_p) == 6 and new_p.isdigit():
-                st.session_state.users[new_u] = new_p
-                st.success("Kayıt başarılı! Giriş yapabilirsiniz.")
-            else:
-                st.warning("Şifre tam olarak 6 haneli rakam olmalıdır!")
+    st.title("🔐 Koz Apartmanı Giriş")
+    u_name = st.text_input("Kullanıcı Adı")
+    u_pass = st.text_input("Şifre", type="password")
+    if st.button("Giriş Yap"):
+        if u_name == "fatihyaman" and u_pass == "200915":
+            st.session_state.logged_in_user = "admin"
+            st.rerun()
+        elif u_name != "" and len(u_pass) == 6:
+            st.session_state.logged_in_user = "user"
+            st.rerun()
     st.stop()
 
-# --- 4. YETKİ KONTROLÜ ---
-is_admin = (st.session_state.logged_in_user == "fatihyaman")
+is_admin = (st.session_state.logged_in_user == "admin")
 
-# --- 5. GÖRSEL TASARIM ---
+# --- 4. GÖRSEL TASARIM ---
 st.markdown("""
     <style>
-    .month-card { padding: 10px; border-radius: 8px; text-align: center; color: white; font-weight: bold; margin: 2px; font-size: 12px;}
-    .bg-green { background-color: #28a745; }
-    .bg-red { background-color: #dc3545; opacity: 0.6; }
-    .bakiye-container { background-color: #1E3A8A; color: white; padding: 20px; border-radius: 15px; text-align: center; }
+    .bakiye-container { background-color: #1E3A8A; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
+    .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 6. YILLIK DURUM PANOSU (YEŞİL / KIRMIZI AYLAR) ---
-st.write(f"Hoş geldiniz, **{st.session_state.logged_in_user}** " + ("(Yönetici)" if is_admin else "(İzleyici)"))
-if st.button("Güvenli Çıkış"):
+# --- 5. ÜST PANEL VE BAKİYE ---
+t_gelir = df_gelir["Miktar"].sum()
+t_gider = df_gider["Miktar"].sum()
+st.markdown(f'<div class="bakiye-container"><h2>KASA: {t_gelir - t_gider:,.2f} TL</h2></div>', unsafe_allow_html=True)
+
+if st.button("Çıkış Yap"):
     st.session_state.logged_in_user = None
     st.rerun()
 
-st.subheader("🗓️ 2026 Yılı Tahsilat Durumu")
-cols = st.columns(12)
-for idx, ay in enumerate(aylar):
-    # Ayın ödemesi tamamlandı mı kontrolü (Örn: 8 dairenin hepsi 400+ ödedi mi?)
-    aylik_toplam = st.session_state.kasa_gelir[st.session_state.kasa_gelir["Ay"] == ay]["Miktar"].sum()
-    odeme_tamam = aylik_toplam >= (len(DAIRE_LISTESI) * 400)
-    status_class = "bg-green" if odeme_tamam else "bg-red"
-    cols[idx].markdown(f'<div class="month-card {status_class}">{ay}</div>', unsafe_allow_html=True)
+# --- 6. ANA SEKMELER ---
+tab_yönetim, tab_rapor = st.tabs(["⚙️ Aylık Yönetim", "📜 Genel Hareket Raporu"])
 
-# Kasa Özeti
-t_gelir = st.session_state.kasa_gelir["Miktar"].sum()
-t_gider = st.session_state.kasa_gider["Miktar"].sum()
-st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA BAKİYESİ: {t_gelir - t_gider:,.2f} TL</h3></div>', unsafe_allow_html=True)
-
-# --- 7. ANA PANEL ---
-secilen_ay = st.selectbox("İncelemek istediğiniz ayı seçin:", aylar, index=datetime.now().month-1)
-
-t1, t2 = st.tabs(["💰 GELİRLER", "💸 GİDERLER"])
-
-with t1:
-    if is_admin:
-        with st.expander("➕ Yeni Gelir Ekle"):
-            g_daire = st.selectbox("Daire", DAIRE_LISTESI)
-            turler = ["Aidat", "Yıllık Asansör Bakımı"] if secilen_ay == "Ocak" else ["Aidat"]
-            g_tur = st.radio("Tür", turler, horizontal=True)
-            g_miktar = st.number_input("Tutar", value=400 if g_tur == "Aidat" else 0)
-            if st.button("Kaydet"):
-                yeni = pd.DataFrame([{"Ay": secilen_ay, "Daire": g_daire, "Tür": g_tur, "Miktar": g_miktar}])
-                st.session_state.kasa_gelir = pd.concat([st.session_state.kasa_gelir, yeni], ignore_index=True)
-                st.rerun()
+with tab_yönetim:
+    secilen_ay = st.selectbox("Ay Seçin", aylar, index=datetime.now().month-1)
     
-    st.dataframe(st.session_state.kasa_gelir[st.session_state.kasa_gelir["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
-
-with t2:
-    if is_admin:
-        with st.expander("➕ Yeni Gider Ekle"):
-            gd_tur = st.text_input("Gider Açıklaması")
-            gd_miktar = st.number_input("Tutar (TL)", min_value=0)
-            if st.button("Gideri Kaydet"):
-                yeni_g = pd.DataFrame([{"Ay": secilen_ay, "Tür": gd_tur, "Miktar": gd_miktar}])
-                st.session_state.kasa_gider = pd.concat([st.session_state.kasa_gider, yeni_g], ignore_index=True)
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.subheader(f"📥 {secilen_ay} Gelirleri")
+        if is_admin:
+            with st.expander("Yeni Gelir Ekle"):
+                g_daire = st.selectbox("Daire", DAIRE_LISTESI)
+                g_tur = st.selectbox("Tür", ["Aidat", "Yıllık Asansör Bakımı"] if secilen_ay=="Ocak" else ["Aidat"])
+                g_miktar = st.number_input("Tutar", value=400)
+                if st.button("Geliri Kaydet"):
+                    yeni_row = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": g_daire, "Tür": g_tur, "Miktar": g_miktar}])
+                    updated_df = pd.concat([df_gelir, yeni_row], ignore_index=True)
+                    conn.update(worksheet="Gelirler", data=updated_df)
+                    st.success("Kaydedildi!"); st.rerun()
+        
+        aylik_gelir = df_gelir[df_gelir["Ay"] == secilen_ay]
+        st.dataframe(aylik_gelir, use_container_width=True, hide_index=True)
+        
+        if is_admin and not aylik_gelir.empty:
+            sil_id = st.selectbox("Silinecek Gelir Satırı (Index)", aylik_gelir.index)
+            if st.button("Seçili Geliri Sil"):
+                df_gelir = df_gelir.drop(sil_id)
+                conn.update(worksheet="Gelirler", data=df_gelir)
                 st.rerun()
-                
-    st.dataframe(st.session_state.kasa_gider[st.session_state.kasa_gider["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
+
+    with c2:
+        st.subheader(f"📤 {secilen_ay} Giderleri")
+        if is_admin:
+            with st.expander("Yeni Gider Ekle"):
+                gd_tur = st.text_input("Açıklama")
+                gd_miktar = st.number_input("Gider Tutarı", min_value=0)
+                if st.button("Gideri Kaydet"):
+                    yeni_row = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": gd_tur, "Miktar": gd_miktar}])
+                    updated_df = pd.concat([df_gider, yeni_row], ignore_index=True)
+                    conn.update(worksheet="Giderler", data=updated_df)
+                    st.success("Gider Kaydedildi!"); st.rerun()
+
+        aylik_gider = df_gider[df_gider["Ay"] == secilen_ay]
+        st.dataframe(aylik_gider, use_container_width=True, hide_index=True)
+
+        if is_admin and not aylik_gider.empty:
+            sil_id_g = st.selectbox("Silinecek Gider Satırı (Index)", aylik_gider.index)
+            if st.button("Seçili Gideri Sil"):
+                df_gider = df_gider.drop(sil_id_g)
+                conn.update(worksheet="Giderler", data=df_gider)
+                st.rerun()
+
+with tab_rapor:
+    st.subheader("🗓️ 2026 Yılı Tüm Hareketler (Kronolojik)")
+    
+    # Gelir ve Giderleri birleştirme
+    report_gelir = df_gelir.copy()
+    report_gelir["Tür"] = "GELİR: " + report_gelir["Tür"] + " (" + report_gelir["Daire"] + ")"
+    
+    report_gider = df_gider.copy()
+    report_gider["Tür"] = "GİDER: " + report_gider["Tür"]
+    report_gider["Miktar"] = -report_gider["Miktar"] # Giderleri eksi göster
+    
+    full_report = pd.concat([report_gelir[["Tarih", "Ay", "Tür", "Miktar"]], 
+                             report_gider[["Tarih", "Ay", "Tür", "Miktar"]]])
+    
+    st.dataframe(full_report.sort_index(ascending=False), use_container_width=True, hide_index=True)

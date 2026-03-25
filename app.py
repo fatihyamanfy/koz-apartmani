@@ -16,34 +16,25 @@ DAIRE_LISTESI = [
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. VERİTABANI BAĞLANTISI (SÜTUN SIRASINA GÖRE ZORLAMA) ---
+# --- 2. VERİTABANI BAĞLANTISI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def verileri_yukle():
     try:
-        # Verileri ham olarak çek
         raw_gelir = conn.read(worksheet="Gelirler", ttl=0).dropna(how="all", axis=0)
         raw_gider = conn.read(worksheet="Giderler", ttl=0).dropna(how="all", axis=0)
         
-        # SÜTUN İSİMLERİNDEN BAĞIMSIZLAŞTIRMA (Sıraya Göre Yeniden Adlandır)
-        # Gelirler: [0:Tarih, 1:Ay, 2:Daire, 3:Tür, 4:Miktar]
-        # Giderler: [0:Tarih, 1:Ay, 2:Tür, 3:Miktar]
-        
         def temizle_ve_isimlendir(df, kolonlar):
-            # Sadece veri olan sütunları al (None/Unnamed olanları dışla)
             df = df.iloc[:, :len(kolonlar)] 
             df.columns = kolonlar
-            # Sayısal veriyi temizle
             df["Miktar"] = pd.to_numeric(df["Miktar"], errors='coerce').fillna(0)
             df["Ay"] = df["Ay"].astype(str).str.strip().str.capitalize()
             return df
 
         df_gelir = temizle_ve_isimlendir(raw_gelir, ["Tarih", "Ay", "Daire", "Tür", "Miktar"])
         df_gider = temizle_ve_isimlendir(raw_gider, ["Tarih", "Ay", "Tür", "Miktar"])
-        
         return df_gelir, df_gider
     except Exception as e:
-        st.error(f"Bağlantı Ayarı Hatası: {e}")
         return pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"]), \
                pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
 
@@ -65,7 +56,7 @@ if st.session_state.logged_in_user is None:
 
 is_admin = (st.session_state.logged_in_user == "admin")
 
-# --- 4. GÖRSEL TASARIM (BEYAZ ZEMİN FIX) ---
+# --- 4. GÖRSEL TASARIM ---
 st.markdown("""
     <style>
     .bakiye-container { background-color: #1E3A8A; color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
@@ -102,19 +93,34 @@ st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA: {t_gelir - t_gider
 t_aylik, t_rapor = st.tabs(["⚙️ Aylık Yönetim", "📜 Genel Rapor"])
 
 with t_aylik:
-    secilen_ay = st.selectbox("Ay Seçin", aylar, index=datetime.now().month-1)
+    secilen_ay = st.selectbox("İşlem Yapılacak Ayı Seçin", aylar, index=datetime.now().month-1)
     
+    # --- GELİR EKLEME (ÇOKLU SEÇİM) ---
     st.subheader(f"📥 {secilen_ay} Gelirleri")
     if is_admin:
-        with st.expander("➕ Yeni Gelir Ekle"):
-            g_daire = st.selectbox("Daire", DAIRE_LISTESI)
-            g_tur = st.radio("Tür", ["Aidat", "Asansör Bakımı"] if secilen_ay=="Ocak" else ["Aidat"], horizontal=True)
-            g_miktar = st.number_input("Miktar", value=400)
-            if st.button("Kaydet"):
-                yeni = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Daire": g_daire, "Tür": g_tur, "Miktar": g_miktar}])
-                conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, yeni], ignore_index=True))
-                st.rerun()
-    
+        with st.expander("🚀 HIZLI ÇOKLU TAHSİLAT", expanded=False):
+            secilen_daireler = st.multiselect("Ödeme Yapan Daireleri Seçin", DAIRE_LISTESI)
+            c1, c2 = st.columns(2)
+            g_tur_coklu = c1.radio("Ödeme Türü", ["Aidat", "Asansör Bakımı"] if secilen_ay=="Ocak" else ["Aidat"], key="coklu_tur")
+            g_miktar_coklu = c2.number_input("Daire Başı Tutar (TL)", value=400 if g_tur_coklu == "Aidat" else 1800)
+            
+            if st.button(f"{len(secilen_daireler)} Dairenin Ödemesini Kaydet", use_container_width=True):
+                if secilen_daireler:
+                    yeni_kayitlar = []
+                    tarih_bugun = datetime.now().strftime("%d.%m.%Y")
+                    for d in secilen_daireler:
+                        yeni_kayitlar.append({
+                            "Tarih": tarih_bugun, "Ay": secilen_ay, 
+                            "Daire": d, "Tür": g_tur_coklu, "Miktar": g_miktar_coklu
+                        })
+                    yeni_df = pd.DataFrame(yeni_kayitlar)
+                    conn.update(worksheet="Gelirler", data=pd.concat([df_gelir, yeni_df], ignore_index=True))
+                    st.success(f"{len(secilen_daireler)} adet kayıt başarıyla eklendi!")
+                    st.rerun()
+                else:
+                    st.error("Lütfen en az bir daire seçin!")
+
+    # Mevcut Gelir Listesi
     filtre_gelir = df_gelir[df_gelir["Ay"] == secilen_ay]
     for idx, row in filtre_gelir.iterrows():
         c_del, c_txt = st.columns([0.1, 0.9])
@@ -125,12 +131,13 @@ with t_aylik:
 
     st.divider()
 
+    # --- GİDERLER ---
     st.subheader(f"📤 {secilen_ay} Giderleri")
     if is_admin:
         with st.expander("➕ Yeni Gider Ekle"):
-            gd_acik = st.text_input("Açıklama")
-            gd_miktar = st.number_input("Tutar", min_value=0)
-            if st.button("Gider Kaydet"):
+            gd_acik = st.text_input("Gider Açıklaması")
+            gd_miktar = st.number_input("Gider Tutarı", min_value=0)
+            if st.button("Gideri Kaydet"):
                 yeni_g = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": secilen_ay, "Tür": gd_acik, "Miktar": gd_miktar}])
                 conn.update(worksheet="Giderler", data=pd.concat([df_gider, yeni_g], ignore_index=True))
                 st.rerun()

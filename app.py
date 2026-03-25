@@ -7,7 +7,6 @@ import time
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="Koz Yönetim Pro", layout="centered", initial_sidebar_state="collapsed")
 
-# iPhone Safari & Mobil Görünüm
 st.markdown("""
     <style>
         .stApp { background-color: #0D1117; color: #C9D1D9; }
@@ -28,11 +27,10 @@ if "page" not in st.session_state:
 DAIRE_LISTESI = ["EMEL ERKABAKTEPE-1", "AYŞE EVRENDİLEK-2", "FATİH YAMAN-3", "İSMAİL BOZTEPE-4", "FEHMİ KOÇ-5", "MURAT ALTINIŞIK-6", "ARİF BİÇER-7", "ŞERİFE-8"]
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. KOTA KORUMALI VERİ YÖNETİMİ ---
+# --- 2. VERİ YÖNETİMİ ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# TTL'i 120 saniye yaptım. Google'ı çok daha az rahatsız edecek.
-@st.cache_data(ttl=120) 
+@st.cache_data(ttl=60) 
 def verileri_yukle():
     try:
         df_gelir = conn.read(worksheet="Gelirler", ttl=0).dropna(how="all")
@@ -50,24 +48,23 @@ def verileri_yukle():
         return temizle(df_gelir, ["Tarih", "Ay", "Daire", "Tür", "Miktar"]), \
                temizle(df_gider, ["Tarih", "Ay", "Tür", "Miktar"])
     except Exception:
-        # Hata anında (Kota dolduğunda) boş dönmek yerine mevcut session_state'i kullanacağız
         return None, None
 
 def güvenli_kaydet(ws_name, updated_df):
     try:
         conn.update(worksheet=ws_name, data=updated_df)
-        st.cache_data.clear() # Sadece başarılı yazma sonrası temizle
-        st.toast("✅ İşlem Başarılı!", icon="🚀")
-        time.sleep(2) # Google'a nefes payı
+        st.cache_data.clear()
+        st.toast("✅ Kayıt Başarılı!", icon="✔️")
+        time.sleep(1)
         return True
-    except Exception as e:
-        st.error("⚠️ Google şu an çok yoğun. Lütfen 30 saniye bekleyip tekrar deneyin.")
+    except Exception:
+        st.error("⚠️ Google meşgul, lütfen az sonra tekrar deneyin.")
         return False
 
 # --- 3. GİRİŞ ---
 if st.session_state.logged_in_user is None:
     st.markdown("<h2 style='text-align:center;'>🏢 Koz Apartmanı</h2>", unsafe_allow_html=True)
-    u = st.text_input("Yönetici Adı")
+    u = st.text_input("Yönetici")
     p = st.text_input("Şifre", type="password")
     if st.button("Giriş", use_container_width=True):
         if u == "fatihyaman" and p == "200915":
@@ -77,12 +74,9 @@ if st.session_state.logged_in_user is None:
         else: st.error("Hatalı Giriş!")
     st.stop()
 
-# Veri Okuma
 gelir_df, gider_df = verileri_yukle()
-
-# Eğer okuma başarısızsa (Kota hatası), uygulamayı durdurmak yerine uyarı ver
 if gelir_df is None:
-    st.info("ℹ️ Veriler güncelleniyor, lütfen bekleyin... (Kota koruması aktif)")
+    st.info("🔄 Veriler yükleniyor...")
     st.stop()
 
 is_admin = (st.session_state.logged_in_user == "admin")
@@ -99,28 +93,41 @@ if menu[2].button("📊 Rapor"): st.session_state.page = "Rapor"
 # --- SAYFA MANTIKLARI ---
 if st.session_state.page == "Özet":
     ay_simdi = aylar[datetime.now().month-1]
-    st.subheader(f"📍 {ay_simdi} Aidat Takibi")
+    st.subheader(f"📍 {ay_simdi} Takibi")
     yapanlar = gelir_df[(gelir_df["Ay"] == ay_simdi) & (gelir_df["Tür"] == "Aidat")]["Daire"].tolist()
     borclular = [d for d in DAIRE_LISTESI if d not in yapanlar]
     c1, c2 = st.columns(2)
     c1.metric("Ödeyen", len(yapanlar))
     c2.metric("Kalan", len(borclular))
-    if borclular: st.warning(f"Ödeme Beklenen: {', '.join(borclular)}")
+    for b in borclular: st.warning(f"❌ {b}")
 
 elif st.session_state.page == "İşlem":
     if is_admin:
         sec_ay = st.selectbox("İşlem Ayı", aylar, index=datetime.now().month-1)
-        tip = st.radio("İşlem Türü", ["Gelir", "Gider"], horizontal=True)
+        tip = st.radio("Tür", ["Gelir", "Gider"], horizontal=True)
         
-        with st.form("islem_form", clear_on_submit=True):
+        with st.form("islem_form"):
             if tip == "Gelir":
                 d_sec = st.multiselect("Daireler", DAIRE_LISTESI)
                 t_tur = st.selectbox("Kalem", ["Aidat", "Asansör", "Ek Ödeme"])
                 t_mik = st.number_input("Tutar", 400)
                 if st.form_submit_button("KAYDET"):
-                    yeni = [{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": sec_ay, "Daire": d, "Tür": t_tur, "Miktar": t_mik} for d in d_sec]
-                    if güvenli_kaydet("Gelirler", pd.concat([gelir_df, pd.DataFrame(yeni)], ignore_index=True)):
-                        st.rerun()
+                    if not d_sec:
+                        st.error("Lütfen en az bir daire seçin.")
+                    else:
+                        # --- KRİTİK ŞART: MÜKERRER KONTROLÜ ---
+                        zaten_odeyenler = gelir_df[(gelir_df["Ay"] == sec_ay) & (gelir_df["Tür"] == t_tur)]["Daire"].tolist()
+                        hatali_daireler = [d for d in d_sec if d in zaten_odeyenler]
+                        temiz_daireler = [d for d in d_sec if d not in zaten_odeyenler]
+                        
+                        if hatali_daireler and t_tur == "Aidat":
+                            st.error(f"❌ Şu daireler {sec_ay} ayı için zaten aidat ödemiş: {', '.join(hatali_daireler)}")
+                        
+                        if temiz_daireler:
+                            yeni = [{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": sec_ay, "Daire": d, "Tür": t_tur, "Miktar": t_mik} for d in temiz_daireler]
+                            if güvenli_kaydet("Gelirler", pd.concat([gelir_df, pd.DataFrame(yeni)], ignore_index=True)):
+                                if not hatali_daireler: st.rerun()
+                                else: st.info("Sadece ödeme yapmamış olan daireler kaydedildi.")
             else:
                 acik = st.text_input("Gider Adı")
                 mik = st.number_input("Tutar", 0)
@@ -128,7 +135,7 @@ elif st.session_state.page == "İşlem":
                     yeni_g = pd.DataFrame([{"Tarih": datetime.now().strftime("%d.%m.%Y"), "Ay": sec_ay, "Tür": acik, "Miktar": mik}])
                     if güvenli_kaydet("Giderler", pd.concat([gider_df, yeni_g], ignore_index=True)):
                         st.rerun()
-    else: st.error("Yetkiniz yok.")
+    else: st.error("İzleyici yetkisiyle işlem yapılamaz.")
 
 elif st.session_state.page == "Rapor":
     r_ay = st.selectbox("Filtre", ["Tümü"] + aylar)

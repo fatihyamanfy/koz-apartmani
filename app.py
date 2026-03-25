@@ -2,58 +2,87 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Koz Apartmanı Yönetim", layout="wide")
+st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
 
-# --- AYARLAR ---
-AIDAT_MIKTARI = 400
-DAIRE_SAYISI = 10 # Apartmanınızdaki daire sayısına göre güncelleyin
+# --- 1. AYARLAR VE VERİ YAPISI ---
+st.markdown("""
+    <style>
+    .main-header {font-size: 25px; font-weight: bold; color: #1E3A8A;}
+    .sticky-box {
+        position: fixed; top: 50px; right: 20px; 
+        background-color: #f0f2f6; padding: 15px; 
+        border-radius: 10px; border: 2px solid #1E3A8A; 
+        z-index: 100; text-align: center;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-st.title("🏢 Koz Apartmanı Dijital Karar Defteri")
+aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+         "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- SIDEBAR (Gider Girişi) ---
-st.sidebar.header("💸 Gider Yönetimi")
-gider_aciklama = st.sidebar.text_input("Gider Açıklaması", placeholder="Örn: Asansör Bakımı")
-gider_tutari = st.sidebar.number_input("Gider Tutarı (TL)", min_value=0, step=10)
+# Sayfayı yenilese bile verilerin (o anlık) gitmemesi için session_state kullanıyoruz
+if "gelir_verisi" not in st.session_state:
+    # Her ay için 10 dairelik boş matris
+    st.session_state.gelir_verisi = {ay: pd.DataFrame({"Daire No": [f"Daire {i}" for i in range(1, 11)], "Miktar (TL)": 0.0}) for ay in aylar}
+if "gider_verisi" not in st.session_state:
+    st.session_state.gider_verisi = {ay: pd.DataFrame(columns=["Açıklama", "Tutar (TL)"]) for ay in aylar}
 
-if st.sidebar.button("Gideri Sisteme İşle"):
-    st.sidebar.success(f"{gider_aciklama} için {gider_tutari} TL kaydedildi! (E-Tabloya manuel eklemeyi unutmayın)")
+# --- 2. SAĞ ÜST SABİT BAKİYE EKRANI ---
+toplam_gelir_genel = sum(df["Miktar (TL)"].sum() for df in st.session_state.gelir_verisi.values())
+toplam_gider_genel = sum(df["Tutar (TL)"].sum() for df in st.session_state.gider_verisi.values())
+net_bakiye = toplam_gelir_genel - toplam_gider_genel
 
-# --- ANA PANEL ---
-tab1, tab2 = st.tabs(["💰 Aidat Takibi (Gelir)", "📊 Kasa Özeti"])
+st.markdown(f"""
+    <div class="sticky-box">
+        <span style="color: #555; font-size: 14px;">📊 GÜNCEL KASA</span><br>
+        <span style="color: #1E3A8A; font-size: 24px; font-weight: bold;">{net_bakiye:,.2f} TL</span>
+    </div>
+""", unsafe_allow_html=True)
 
-with tab1:
-    st.subheader(f"{datetime.now().strftime('%B %Y')} Ayı Tahsilat Listesi")
-    st.info("Daire ödemesini yapınca yanındaki kutucuğu işaretleyin. Sistem otomatik 400 TL hesaplar.")
-    
-    # Daire listesi oluşturma
-    veriler = []
-    for i in range(1, DAIRE_SAYISI + 1):
-        veriler.append({"Daire No": f"Daire {i}", "Ödeme Durumu": False})
-    
-    # İnteraktif Tablo
-    df_aidat = pd.DataFrame(veriler)
-    edited_df = st.data_editor(df_aidat, use_container_width=True, hide_index=True)
-    
-    # Hesaplamalar
-    odenen_daire_sayisi = edited_df["Ödeme Durumu"].sum()
-    toplam_gelir = odenen_daire_sayisi * AIDAT_MIKTARI
+# --- 3. ANA PANEL ---
+st.title("🏢 Koz Apartmanı 2026 Yönetim Paneli")
 
-with tab2:
-    st.subheader("Genel Kasa Durumu")
-    
-    # Örnek statik gider (Şimdilik manuel girilen değeri buraya çekiyoruz)
-    toplam_gider = gider_tutari # Sidebar'dan gelen değer
-    kalan_bakiye = toplam_gelir - toplam_gider
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Toplam Tahsilat", f"{toplam_gelir} TL", f"{odenen_daire_sayisi} Daire")
-    c2.metric("Toplam Gider", f"{toplam_gider} TL", delta_color="inverse")
-    c3.metric("Kasadaki Net Bakiye", f"{kalan_bakiye} TL")
+# Ayları sekmeler halinde dizelim
+tabs = st.tabs(aylar)
 
-    st.divider()
-    if kalan_bakiye < 0:
-        st.error("⚠️ Dikkat! Kasa eksi bakiyede.")
-    else:
-        st.success("✅ Kasa durumu sağlıklı.")
+for i, ay in enumerate(aylar):
+    with tabs[i]:
+        st.markdown(f"<div class='main-header'>{ay} 2026 Hareketleri</div>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.subheader("💰 Gelirler (Aidat)")
+            # Düzenlenebilir Gelir Tablosu
+            edited_gelir = st.data_editor(
+                st.session_state.gelir_verisi[ay], 
+                key=f"gelir_edit_{ay}",
+                use_container_width=True,
+                hide_index=True
+            )
+            st.session_state.gelir_verisi[ay] = edited_gelir
+            aylik_gelir_toplam = edited_gelir["Miktar (TL)"].sum()
+            st.info(f"**{ay} Toplam Gelir:** {aylik_gelir_toplam:,.2f} TL")
 
-st.caption("Not: Bu paneldeki değişikliklerin kalıcı olması için verileri ay sonunda Google Tablo'ya aktarmanız önerilir.")
+        with col2:
+            st.subheader("💸 Giderler")
+            # Düzenlenebilir Gider Tablosu (Yeni satır eklenebilir)
+            edited_gider = st.data_editor(
+                st.session_state.gider_verisi[ay],
+                key=f"gider_edit_{ay}",
+                num_rows="dynamic", # Buradan artı butonuna basıp yeni gider girebilirsin
+                use_container_width=True,
+                hide_index=True
+            )
+            st.session_state.gider_verisi[ay] = edited_gider
+            aylik_gider_toplam = edited_gider["Tutar (TL)"].sum()
+            st.error(f"**{ay} Toplam Gider:** {aylik_gider_toplam:,.2f} TL")
+
+        st.divider()
+        st.write(f"ℹ️ {ay} ayı sonu bakiye durumu: **{aylik_gelir_toplam - aylik_gider_toplam:,.2f} TL**")
+
+# --- 4. VERİ SAKLAMA UYARISI ---
+st.sidebar.warning("""
+**Dikkat:** Bu veriler şu an sadece tarayıcıda tutuluyor. Sayfayı kapatıp açtığınızda sıfırlanabilir. 
+Kalıcı hale getirmek (Google Tablo'ya yazmak) için daha sonra bağlantı kuracağız.
+""")

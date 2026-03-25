@@ -2,113 +2,116 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --- SAYFA AYARLARI ---
+# --- 1. AYARLAR VE YETKİLENDİRME ---
 st.set_page_config(page_title="Koz Apartmanı 2026", layout="wide")
 
-# --- 1. DAİRE LİSTESİ (SABİT VE DÜZENLENEMEZ) ---
-DAIRE_LISTESI = [
-    "Daire 1 - Emel Erkabaktepe",
-    "Daire 2 - Fatih Yaman",
-    "Daire 3 - Hasan Çetin",
-    "Daire 4 - Erkan Kılıç",
-    "Daire 5 - Süleyman Karaca",
-    "Daire 6 - Mustafa Sönmez",
-    "Daire 7 - Hüseyin Aydın",
-    "Daire 8 - Ömer Koç"
-]
+# Kullanıcı veritabanı simülasyonu (Gerçek sistemde DB'ye bağlanır)
+if "users" not in st.session_state:
+    st.session_state.users = {"fatihyaman": "200915"} # Yönetici hesabı
 
+if "logged_in_user" not in st.session_state:
+    st.session_state.logged_in_user = None
+
+# --- 2. DAİRE VE AY VERİLERİ ---
+DAIRE_LISTESI = [
+    "EMEL ERKABAKTEPE-1", "AYŞE EVRENDİLEK-2", "FATİH YAMAN-3", "İSMAİL BOZTEPE-4",
+    "FEHMİ KOÇ-5", "MURAT ALTINIŞIK-6", "ARİF BİÇER-7", "ŞERİFE-8"
+]
 aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
          "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
-# --- 2. MOBİL TASARIM (CSS) ---
+# Veri saklama
+if "kasa_gelir" not in st.session_state:
+    st.session_state.kasa_gelir = pd.DataFrame(columns=["Ay", "Daire", "Tür", "Miktar"])
+if "kasa_gider" not in st.session_state:
+    st.session_state.kasa_gider = pd.DataFrame(columns=["Ay", "Tür", "Miktar"])
+
+# --- 3. GİRİŞ VE KAYIT SİSTEMİ ---
+if st.session_state.logged_in_user is None:
+    st.title("🔐 Koz Apartmanı Yönetim Sistemi")
+    giris_tab, kayit_tab = st.tabs(["Giriş Yap", "Kayıt Ol"])
+    
+    with giris_tab:
+        u_name = st.text_input("Kullanıcı Adı")
+        u_pass = st.text_input("Şifre", type="password")
+        if st.button("Giriş"):
+            if u_name in st.session_state.users and st.session_state.users[u_name] == u_pass:
+                st.session_state.logged_in_user = u_name
+                st.rerun()
+            else:
+                st.error("Hatalı kullanıcı adı veya şifre!")
+
+    with kayit_tab:
+        new_u = st.text_input("Yeni Kullanıcı Adı")
+        new_p = st.text_input("Yeni Şifre (Sadece 6 Haneli Rakam)", max_chars=6)
+        if st.button("Kayıt Ol"):
+            if len(new_p) == 6 and new_p.isdigit():
+                st.session_state.users[new_u] = new_p
+                st.success("Kayıt başarılı! Giriş yapabilirsiniz.")
+            else:
+                st.warning("Şifre tam olarak 6 haneli rakam olmalıdır!")
+    st.stop()
+
+# --- 4. YETKİ KONTROLÜ ---
+is_admin = (st.session_state.logged_in_user == "fatihyaman")
+
+# --- 5. GÖRSEL TASARIM ---
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 10px; height: 3em; background-color: #1E3A8A; color: white; }
-    .bakiye-kutu {
-        background-color: #1E3A8A; color: white; padding: 20px; border-radius: 15px;
-        text-align: center; margin-bottom: 20px; box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
-    }
-    .ay-baslik { font-size: 24px; font-weight: bold; color: #1E3A8A; text-align: center; }
+    .month-card { padding: 10px; border-radius: 8px; text-align: center; color: white; font-weight: bold; margin: 2px; font-size: 12px;}
+    .bg-green { background-color: #28a745; }
+    .bg-red { background-color: #dc3545; opacity: 0.6; }
+    .bakiye-container { background-color: #1E3A8A; color: white; padding: 20px; border-radius: 15px; text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. VERİ SAKLAMA (SESSION STATE) ---
-# Uygulama açık kaldığı sürece verileri burada tutar
-if "kasa_gelir" not in st.session_state:
-    st.session_state.kasa_gelir = pd.DataFrame(columns=["Tarih", "Ay", "Daire", "Tür", "Miktar"])
-if "kasa_gider" not in st.session_state:
-    st.session_state.kasa_gider = pd.DataFrame(columns=["Tarih", "Ay", "Tür", "Miktar"])
+# --- 6. YILLIK DURUM PANOSU (YEŞİL / KIRMIZI AYLAR) ---
+st.write(f"Hoş geldiniz, **{st.session_state.logged_in_user}** " + ("(Yönetici)" if is_admin else "(İzleyici)"))
+if st.button("Güvenli Çıkış"):
+    st.session_state.logged_in_user = None
+    st.rerun()
 
-# --- 4. ÜST BAKİYE PANELİ ---
+st.subheader("🗓️ 2026 Yılı Tahsilat Durumu")
+cols = st.columns(12)
+for idx, ay in enumerate(aylar):
+    # Ayın ödemesi tamamlandı mı kontrolü (Örn: 8 dairenin hepsi 400+ ödedi mi?)
+    aylik_toplam = st.session_state.kasa_gelir[st.session_state.kasa_gelir["Ay"] == ay]["Miktar"].sum()
+    odeme_tamam = aylik_toplam >= (len(DAIRE_LISTESI) * 400)
+    status_class = "bg-green" if odeme_tamam else "bg-red"
+    cols[idx].markdown(f'<div class="month-card {status_class}">{ay}</div>', unsafe_allow_html=True)
+
+# Kasa Özeti
 t_gelir = st.session_state.kasa_gelir["Miktar"].sum()
 t_gider = st.session_state.kasa_gider["Miktar"].sum()
-net_kasa = t_gelir - t_gider
+st.markdown(f'<div class="bakiye-container"><h3>GÜNCEL KASA BAKİYESİ: {t_gelir - t_gider:,.2f} TL</h3></div>', unsafe_allow_html=True)
 
-st.markdown(f"""
-    <div class="bakiye-kutu">
-        <div style="font-size: 16px; opacity: 0.8;">TOPLAM KASA BAKİYESİ</div>
-        <div style="font-size: 32px; font-weight: bold;">{net_kasa:,.2f} TL</div>
-    </div>
-""", unsafe_allow_html=True)
+# --- 7. ANA PANEL ---
+secilen_ay = st.selectbox("İncelemek istediğiniz ayı seçin:", aylar, index=datetime.now().month-1)
 
-# --- 5. AY SEÇİMİ (MOBİL SLIDER) ---
-simdiki_ay_index = datetime.now().month - 1
-secilen_ay = st.select_slider("📅 İşlem Yapılacak Ayı Kaydırın", options=aylar, value=aylar[simdiki_ay_index])
+t1, t2 = st.tabs(["💰 GELİRLER", "💸 GİDERLER"])
 
-st.markdown(f"<div class='ay-baslik'>{secilen_ay} 2026 Yönetimi</div>", unsafe_allow_html=True)
+with t1:
+    if is_admin:
+        with st.expander("➕ Yeni Gelir Ekle"):
+            g_daire = st.selectbox("Daire", DAIRE_LISTESI)
+            turler = ["Aidat", "Yıllık Asansör Bakımı"] if secilen_ay == "Ocak" else ["Aidat"]
+            g_tur = st.radio("Tür", turler, horizontal=True)
+            g_miktar = st.number_input("Tutar", value=400 if g_tur == "Aidat" else 0)
+            if st.button("Kaydet"):
+                yeni = pd.DataFrame([{"Ay": secilen_ay, "Daire": g_daire, "Tür": g_tur, "Miktar": g_miktar}])
+                st.session_state.kasa_gelir = pd.concat([st.session_state.kasa_gelir, yeni], ignore_index=True)
+                st.rerun()
+    
+    st.dataframe(st.session_state.kasa_gelir[st.session_state.kasa_gelir["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
 
-# --- 6. GELİR VE GİDER GİRİŞ ALANLARI ---
-col1, col2 = st.columns(2)
-
-with col1:
-    with st.expander("📥 GELİR EKLE (Aidat/Ek)", expanded=True):
-        g_daire = st.selectbox("Daire", DAIRE_LISTESI, key="d_sec")
-        
-        # Ocak ayı için özel seçenek
-        gelir_turleri = ["Aidat", "Yıllık Asansör Bakımı"] if secilen_ay == "Ocak" else ["Aidat"]
-        g_tur = st.radio("Ödeme Türü", gelir_turleri, horizontal=True)
-        
-        g_miktar = st.number_input("Tutar (TL)", min_value=0, value=400 if g_tur == "Aidat" else 0)
-        
-        if st.button("Geliri İşle"):
-            yeni_gelir = pd.DataFrame([{
-                "Tarih": datetime.now().strftime("%d.%m.%Y"),
-                "Ay": secilen_ay,
-                "Daire": g_daire,
-                "Tür": g_tur,
-                "Miktar": g_miktar
-            }])
-            st.session_state.kasa_gelir = pd.concat([st.session_state.kasa_gelir, yeni_gelir], ignore_index=True)
-            st.success("Gelir eklendi!")
-            st.rerun()
-
-with col2:
-    with st.expander("📤 GİDER EKLE", expanded=True):
-        gd_tur = st.text_input("Gider Açıklaması", placeholder="Örn: Temizlik malzemesi")
-        gd_miktar = st.number_input("Gider Tutarı (TL)", min_value=0, key="gd_tutar")
-        
-        if st.button("Gideri İşle"):
-            yeni_gider = pd.DataFrame([{
-                "Tarih": datetime.now().strftime("%d.%m.%Y"),
-                "Ay": secilen_ay,
-                "Tür": gd_tur,
-                "Miktar": gd_miktar
-            }])
-            st.session_state.kasa_gider = pd.concat([st.session_state.kasa_gider, yeni_gider], ignore_index=True)
-            st.error("Gider eklendi!")
-            st.rerun()
-
-# --- 7. ÖZET LİSTELER ---
-st.divider()
-st.subheader(f"📊 {secilen_ay} Ayı Hareketleri")
-
-c1, c2 = st.columns(2)
-with c1:
-    st.write("**Gelen Ödemeler**")
-    aylik_g = st.session_state.kasa_gelir[st.session_state.kasa_gelir["Ay"] == secilen_ay]
-    st.dataframe(aylik_g[["Daire", "Tür", "Miktar"]], use_container_width=True, hide_index=True)
-
-with c2:
-    st.write("**Yapılan Harcamalar**")
-    aylik_h = st.session_state.kasa_gider[st.session_state.kasa_gider["Ay"] == secilen_ay]
-    st.dataframe(aylik_h[["Tür", "Miktar"]], use_container_width=True, hide_index=True)
+with t2:
+    if is_admin:
+        with st.expander("➕ Yeni Gider Ekle"):
+            gd_tur = st.text_input("Gider Açıklaması")
+            gd_miktar = st.number_input("Tutar (TL)", min_value=0)
+            if st.button("Gideri Kaydet"):
+                yeni_g = pd.DataFrame([{"Ay": secilen_ay, "Tür": gd_tur, "Miktar": gd_miktar}])
+                st.session_state.kasa_gider = pd.concat([st.session_state.kasa_gider, yeni_g], ignore_index=True)
+                st.rerun()
+                
+    st.dataframe(st.session_state.kasa_gider[st.session_state.kasa_gider["Ay"] == secilen_ay], use_container_width=True, hide_index=True)
